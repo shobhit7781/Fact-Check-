@@ -4,6 +4,7 @@ import requests
 from bs4 import BeautifulSoup
 import json
 import os
+import time
 
 def get_api_key():
     try:
@@ -16,7 +17,7 @@ def call_gemini(prompt):
     url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
     headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
     payload = {"contents": [{"parts": [{"text": prompt}]}]}
-    r = requests.post(url, headers=headers, json=payload, timeout=30)
+    r = requests.post(url, headers=headers, json=payload, timeout=60)
     r.raise_for_status()
     return r.json()["candidates"][0]["content"]["parts"][0]["text"]
 
@@ -33,7 +34,7 @@ def extract_text_from_pdf(uploaded_file):
 
 def extract_claims(text):
     prompt = f"""
-You are a fact-checking assistant. Extract all specific verifiable claims from the following text.
+You are a fact-checking assistant. Extract up to 10 specific verifiable claims from the following text.
 Focus on: statistics, percentages, dates, financial figures, numerical data, named facts.
 
 Return ONLY a JSON array like:
@@ -44,6 +45,7 @@ Text:
 
 Return only the JSON array, no markdown, no explanation.
 """
+    time.sleep(7)
     raw = call_gemini(prompt).strip()
     if raw.startswith("```"):
         raw = raw.split("```")[1]
@@ -80,6 +82,7 @@ Verdicts:
 
 Return only JSON, no markdown.
 """
+    time.sleep(7)
     raw = call_gemini(prompt).strip()
     if raw.startswith("```"):
         raw = raw.split("```")[1]
@@ -101,7 +104,7 @@ if uploaded_file:
         with st.spinner("Identifying claims using AI..."):
             try:
                 claims = extract_claims(text)
-                st.info(f"Found {len(claims)} verifiable claims.")
+                st.info(f"Found {len(claims)} verifiable claims. Verifying each one (this takes a few minutes due to rate limits)...")
             except Exception as e:
                 st.error(f"Claim extraction failed: {e}")
                 claims = []
