@@ -13,7 +13,7 @@ def get_api_key():
 
 def call_gemini(prompt):
     api_key = get_api_key()
-    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
     headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
     payload = {"contents": [{"parts": [{"text": prompt}]}]}
     r = requests.post(url, headers=headers, json=payload, timeout=30)
