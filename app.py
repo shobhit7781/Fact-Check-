@@ -14,7 +14,7 @@ def get_api_key():
 
 def call_gemini(prompt):
     api_key = get_api_key()
-    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent"
     headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
     payload = {"contents": [{"parts": [{"text": prompt}]}]}
     r = requests.post(url, headers=headers, json=payload, timeout=60)
@@ -45,7 +45,6 @@ Text:
 
 Return only the JSON array, no markdown, no explanation.
 """
-    time.sleep(7)
     raw = call_gemini(prompt).strip()
     if raw.startswith("```"):
         raw = raw.split("```")[1]
@@ -82,7 +81,6 @@ Verdicts:
 
 Return only JSON, no markdown.
 """
-    time.sleep(7)
     raw = call_gemini(prompt).strip()
     if raw.startswith("```"):
         raw = raw.split("```")[1]
