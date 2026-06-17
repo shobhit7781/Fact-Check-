@@ -5,12 +5,18 @@ from bs4 import BeautifulSoup
 import json
 import os
 
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") or st.secrets.get("GEMINI_API_KEY")
-GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+def get_api_key():
+    try:
+        return st.secrets["GEMINI_API_KEY"]
+    except:
+        return os.environ.get("GEMINI_API_KEY", "")
 
 def call_gemini(prompt):
+    api_key = get_api_key()
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+    headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
     payload = {"contents": [{"parts": [{"text": prompt}]}]}
-    r = requests.post(GEMINI_URL, json=payload, timeout=30)
+    r = requests.post(url, headers=headers, json=payload, timeout=30)
     r.raise_for_status()
     return r.json()["candidates"][0]["content"]["parts"][0]["text"]
 
