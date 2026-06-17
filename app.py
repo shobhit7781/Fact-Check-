@@ -1,17 +1,20 @@
 import streamlit as st
 import pdfplumber
-import google.generativeai as genai
-import json
 import requests
 from bs4 import BeautifulSoup
+import json
 import os
 
-# Configure Gemini
-genai.configure(api_key=os.environ.get("GEMINI_API_KEY") or st.secrets.get("GEMINI_API_KEY"))
-model = genai.GenerativeModel("gemini-1.5-flash")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") or st.secrets.get("GEMINI_API_KEY")
+GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+
+def call_gemini(prompt):
+    payload = {"contents": [{"parts": [{"text": prompt}]}]}
+    r = requests.post(GEMINI_URL, json=payload, timeout=30)
+    r.raise_for_status()
+    return r.json()["candidates"][0]["content"]["parts"][0]["text"]
 
 st.set_page_config(page_title="FactCheck Agent", page_icon="🔍", layout="wide")
-
 st.title("Fact-Check Agent")
 st.markdown("Upload a PDF to extract and verify claims against live web data.")
 
@@ -27,18 +30,15 @@ def extract_claims(text):
 You are a fact-checking assistant. Extract all specific verifiable claims from the following text.
 Focus on: statistics, percentages, dates, financial figures, numerical data, named facts.
 
-Return ONLY a JSON array of objects with this format:
-[
-  {{"claim": "the exact claim", "context": "brief surrounding context"}}
-]
+Return ONLY a JSON array like:
+[{{"claim": "the exact claim", "context": "brief surrounding context"}}]
 
 Text:
 {text[:6000]}
 
-Return only the JSON array, no other text.
+Return only the JSON array, no markdown, no explanation.
 """
-    response = model.generate_content(prompt)
-    raw = response.text.strip()
+    raw = call_gemini(prompt).strip()
     if raw.startswith("```"):
         raw = raw.split("```")[1]
         if raw.startswith("json"):
@@ -51,44 +51,36 @@ def search_web(query):
         url = f"https://www.google.com/search?q={requests.utils.quote(query)}&num=5"
         resp = requests.get(url, headers=headers, timeout=8)
         soup = BeautifulSoup(resp.text, "html.parser")
-        snippets = []
-        for g in soup.select(".VwiC3b, .yXK7lf, .MUxGbd"):
-            snippets.append(g.get_text())
+        snippets = [g.get_text() for g in soup.select(".VwiC3b, .yXK7lf, .MUxGbd")]
         return " ".join(snippets[:5])
-    except Exception as e:
+    except:
         return ""
 
 def verify_claim(claim, context, web_data):
     prompt = f"""
-You are a fact-checker. Given a claim and web search results, determine if the claim is accurate.
+You are a fact-checker. Given a claim and web search results, determine accuracy.
 
 Claim: {claim}
 Context: {context}
-Web Search Results: {web_data[:2000] if web_data else "No results found."}
+Web Results: {web_data[:2000] if web_data else "No results found."}
 
-Respond ONLY with a JSON object:
-{{
-  "verdict": "Verified" or "Inaccurate" or "False",
-  "explanation": "1-2 sentence explanation",
-  "correct_fact": "The correct information if claim is wrong, else empty string"
-}}
+Respond ONLY with this JSON:
+{{"verdict": "Verified" or "Inaccurate" or "False", "explanation": "1-2 sentences", "correct_fact": "correct info if wrong, else empty string"}}
 
 Verdicts:
-- Verified: claim matches web data
-- Inaccurate: claim is outdated or partially wrong
-- False: claim is wrong or no evidence exists
+- Verified: matches web data
+- Inaccurate: outdated or partially wrong
+- False: wrong or no evidence
 
-Return only JSON, no other text.
+Return only JSON, no markdown.
 """
-    response = model.generate_content(prompt)
-    raw = response.text.strip()
+    raw = call_gemini(prompt).strip()
     if raw.startswith("```"):
         raw = raw.split("```")[1]
         if raw.startswith("json"):
             raw = raw[4:]
     return json.loads(raw.strip())
 
-# UI
 uploaded_file = st.file_uploader("Upload PDF", type=["pdf"])
 
 if uploaded_file:
@@ -96,7 +88,7 @@ if uploaded_file:
         text = extract_text_from_pdf(uploaded_file)
 
     if not text.strip():
-        st.error("Could not extract text from PDF. Try a text-based PDF.")
+        st.error("Could not extract text from PDF.")
     else:
         st.success(f"Extracted {len(text)} characters from PDF.")
 
@@ -112,56 +104,36 @@ if uploaded_file:
             st.markdown("---")
             st.subheader("Verification Results")
 
-            verified_count = 0
-            inaccurate_count = 0
-            false_count = 0
-
+            verified_count = inaccurate_count = false_count = 0
             results = []
-
             progress = st.progress(0)
+
             for i, item in enumerate(claims):
                 claim = item.get("claim", "")
                 context = item.get("context", "")
-
                 web_data = search_web(claim)
                 try:
                     result = verify_claim(claim, context, web_data)
                     results.append({"claim": claim, **result})
-
-                    verdict = result.get("verdict", "False")
-                    if verdict == "Verified":
-                        verified_count += 1
-                    elif verdict == "Inaccurate":
-                        inaccurate_count += 1
-                    else:
-                        false_count += 1
+                    v = result.get("verdict", "False")
+                    if v == "Verified": verified_count += 1
+                    elif v == "Inaccurate": inaccurate_count += 1
+                    else: false_count += 1
                 except Exception as e:
                     results.append({"claim": claim, "verdict": "False", "explanation": f"Error: {e}", "correct_fact": ""})
                     false_count += 1
-
                 progress.progress((i + 1) / len(claims))
 
-            # Summary
             col1, col2, col3 = st.columns(3)
-            col1.metric("Verified", verified_count, delta=None)
-            col2.metric("Inaccurate", inaccurate_count, delta=None)
-            col3.metric("False", false_count, delta=None)
-
+            col1.metric("Verified", verified_count)
+            col2.metric("Inaccurate", inaccurate_count)
+            col3.metric("False", false_count)
             st.markdown("---")
 
             for r in results:
                 verdict = r.get("verdict", "False")
-                if verdict == "Verified":
-                    color = "green"
-                    icon = "VERIFIED"
-                elif verdict == "Inaccurate":
-                    color = "orange"
-                    icon = "INACCURATE"
-                else:
-                    color = "red"
-                    icon = "FALSE"
-
-                with st.expander(f"[{icon}] {r['claim'][:100]}"):
+                color = "green" if verdict == "Verified" else "orange" if verdict == "Inaccurate" else "red"
+                with st.expander(f"[{verdict.upper()}] {r['claim'][:100]}"):
                     st.markdown(f"**Verdict:** :{color}[{verdict}]")
                     st.markdown(f"**Explanation:** {r.get('explanation', '')}")
                     if r.get("correct_fact"):
